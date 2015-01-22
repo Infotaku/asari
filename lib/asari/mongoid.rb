@@ -68,8 +68,7 @@ class Asari
       #       asari_index("my-companies-users-asglkj4rsagkjlh34", [:name, :email], :when => Proc.new({ |user| user.published && !user.admin? }))
       #
       def asari_index(search_domain, fields, options = {})
-        aws_region = options.delete(:aws_region)
-        self.class_variable_set(:@@asari_instance, Asari.new(search_domain,aws_region))
+        self.class_variable_set(:@@asari_instance, Asari.new(search_domain,options.delete(:aws_region),options.delete(:api_version)))
         self.class_variable_set(:@@asari_fields, fields)
         self.class_variable_set(:@@asari_when, options.delete(:when))
       end

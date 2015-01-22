@@ -23,9 +23,10 @@ class Asari
   attr_writer :search_domain
   attr_writer :aws_region
 
-  def initialize(search_domain=nil, aws_region=nil)
+  def initialize(search_domain=nil, aws_region=nil, api_version=nil)
     @search_domain = search_domain
     @aws_region = aws_region
+    @api_version = api_version
   end
 
   # Public: returns the current search_domain, or raises a
