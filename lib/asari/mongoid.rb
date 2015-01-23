@@ -92,7 +92,7 @@ class Asari
           return unless asari_should_index?(obj)
         end
         data = self.asari_data_item(obj)
-        self.asari_instance.add_item(obj.send(:id), data)
+        self.asari_instance.add_item("#{obj.send(:id)}", data)
       rescue Asari::DocumentUpdateException => e
         self.asari_on_error(e)
       end
@@ -102,10 +102,10 @@ class Asari
         objects.each do |object|
           if self.asari_when and asari_should_index?(object)
             data = self.asari_data_item object
-            amazon_items << self.asari_instance.create_item_query(object.id, data)
+            amazon_items << self.asari_instance.create_item_query("#{object.id}", data)
           elsif !self.asari_when
             data = self.asari_data_item object
-            amazon_items << self.asari_instance.create_item_query(object.id, data)
+            amazon_items << self.asari_instance.create_item_query("#{object.id}", data)
           end
         end      
         self.asari_instance.doc_request(amazon_items) if amazon_items.size > 0
@@ -116,7 +116,7 @@ class Asari
       def asari_remove_items(ids)
         amazon_items = []
         ids.each do |id|
-          amazon_items << self.asari_instance.remove_item_query(id)
+          amazon_items << self.asari_instance.remove_item_query("#{id}")
         end   
         self.asari_instance.doc_request(amazon_items)
       rescue Asari::DocumentUpdateException => e
@@ -133,7 +133,7 @@ class Asari
           end
         end
         data = self.asari_data_item(obj)
-        self.asari_instance.update_item(obj.send(:id), data)
+        self.asari_instance.update_item("#{obj.send(:id)}", data)
       rescue Asari::DocumentUpdateException => e
         self.asari_on_error(e)
       end
@@ -152,7 +152,7 @@ class Asari
       # Internal: method for removing a soon-to-be deleted item from the CloudSearch
       # index. Should probably only be called from asari_remove_from_index above.
       def asari_remove_item(obj)
-        self.asari_instance.remove_item(obj.send(:id))
+        self.asari_instance.remove_item("#{obj.send(:id)}")
       rescue Asari::DocumentUpdateException => e
         self.asari_on_error(e)
       end
@@ -178,7 +178,7 @@ class Asari
       #   communicating with the CloudSearch server.
       def asari_find(term, options = {})
         records = self.asari_instance.search(term, options)
-        ids = records.map { |id| id.to_i }
+        ids = records.map(&:to_s)
 
         records.replace(Array(self.where("id" => { "$in" => ids })))
       end
