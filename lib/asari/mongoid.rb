@@ -180,7 +180,7 @@ class Asari
         records = self.asari_instance.search(term, options)
         ids = records.map(&:to_s)
 
-        records.replace(Array(self.where("id" => { "$in" => ids })))
+        records.replace(Array(self.where("id" => { "$in" => ids })).sort_by{|m| ids.index(m.id.to_s) })
       end
 
       # Public: method for handling errors from Asari document updates. By
