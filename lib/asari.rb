@@ -122,31 +122,31 @@ class Asari
 
     options = terms.extract_options!
 
-    url = "http://search-#{search_domain}.#{aws_region}.cloudsearch.amazonaws.com/2013-01-01/search"
+    endpoint = "http://search-#{search_domain}.#{aws_region}.cloudsearch.amazonaws.com/2013-01-01/search"
+    params = []
 
     q = structured_query(options[:query] || terms, compound: true)
-    puts q
-    url += "?q=#{CGI.escape(q)}"
+    params << "q=#{CGI.escape(q)}"
 
     if options[:filter]
       fq = structured_query(options[:filter], compound: true)
-      puts fq
-      url += "&fq=#{CGI.escape(fq)}"
-      url += "&q.parser=structured"
+
+      params << "fq=#{CGI.escape(fq)}&q.parser=structured"
     end
 
     returning = extract_returning(options)
-    url += "&return=#{returning.join(',')}" if returning.present?
+    params << "return=#{returning.join(',')}" if returning.present?
 
     start, size = extract_pagination(options)
-    url += "&start=#{start.to_i}" if start.present? and not start.zero?
-    url += "&size=#{size.to_i}"
+    params << "start=#{start.to_i}" if start.present? and not start.zero?
+    params << "size=#{size.to_i}"
 
     sort = extract_sorting(options)
-    url += "&sort=#{CGI.escape(sort)}" if sort.present?
+    params << "sort=#{CGI.escape(sort)}" if sort.present?
 
+    url = [endpoint, params.join('&')].join('?')
+    puts 'NEW'
     puts url
-
     begin
       response = HTTParty.get(url)
     rescue Exception => e
