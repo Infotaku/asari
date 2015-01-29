@@ -11,6 +11,8 @@ require "json"
 require "cgi"
 
 class Asari
+  DEFAULT_SIZE = 10
+
   def self.mode
     @@mode
   end
@@ -64,29 +66,31 @@ class Asari
   #
   # Raises: SearchException if there's an issue communicating the request to
   #   the server.
-  def search(term, options = {})
+  def search(*terms)
+    case api_version
+      when '2011-02-01'
+        search_with_2011_02_01_api(*terms)
+      when '2013-01-01'
+        search_with_2013_01_01_api(*terms)
+      else
+        search_with_latest_api(*terms)
+    end
+  end
+
+  def search_with_2011_02_01_api(term, options = {})
     return Asari::Collection.sandbox_fake if self.class.mode == :sandbox
     term,options = "",term if term.is_a?(Hash) and options.empty?
 
     bq = boolean_query(options[:filter]) if options[:filter]
     page_size = options[:page_size].nil? ? 10 : options[:page_size].to_i
 
-    url = "http://search-#{search_domain}.#{aws_region}.cloudsearch.amazonaws.com/#{api_version}/search"
+    url = "http://search-#{search_domain}.#{aws_region}.cloudsearch.amazonaws.com/2011-02-01/search"
 
-    if api_version == '2013-01-01'
-      url += "?q='#{CGI.escape(term.to_s)}'"
-      if options[:filter]
-        url += "&fq=#{CGI.escape(bq)}"
-        url += "&q.parser=structured"
-      end
-    else
-      url += "?q=#{CGI.escape(term.to_s)}"
-      url += "&bq=#{CGI.escape(bq)}" if options[:filter]
-    end
+    url += "?q=#{CGI.escape(term.to_s)}"
+    url += "&bq=#{CGI.escape(bq)}" if options[:filter]
 
-    return_statement = api_version == '2013-01-01' ? 'return' : 'return-fields'
     url += "&size=#{page_size}"
-    url += "&#{return_statement}=#{options[:return_fields].join ','}" if options[:return_fields]
+    url += "&return-fields=#{options[:return_fields].join ','}" if options[:return_fields]
 
     if options[:page]
       start = (options[:page].to_i - 1) * page_size
@@ -95,11 +99,8 @@ class Asari
 
     if options[:rank]
       rank = normalize_rank(options[:rank])
-      rank_or_sort = api_version == '2013-01-01' ? 'sort' : 'rank'
-      url << "&#{rank_or_sort}=#{CGI.escape(rank)}"
+      url << "&rank=#{CGI.escape(rank)}"
     end
-
-    puts url
 
     begin
       response = HTTParty.get(url)
@@ -115,6 +116,52 @@ class Asari
 
     Asari::Collection.new(response, page_size)
   end
+
+  def search_with_2013_01_01_api(*terms)
+    return Asari::Collection.sandbox_fake if self.class.mode == :sandbox
+
+    options = terms.extract_options!
+
+    url = "http://search-#{search_domain}.#{aws_region}.cloudsearch.amazonaws.com/2013-01-01/search"
+
+    q = structured_query(options[:query] || terms, compound: true)
+    puts q
+    url += "?q=#{CGI.escape(q)}"
+
+    if options[:filter]
+      fq = structured_query(options[:filter], compound: true)
+      puts fq
+      url += "&fq=#{CGI.escape(fq)}"
+      url += "&q.parser=structured"
+    end
+
+    returning = extract_returning(options)
+    url += "&return=#{returning.join(',')}" if returning.present?
+
+    start, size = extract_pagination(options)
+    url += "&start=#{start.to_i}" if start.present? and not start.zero?
+    url += "&size=#{size.to_i}"
+
+    sort = extract_sorting(options)
+    url += "&sort=#{CGI.escape(sort)}" if sort.present?
+
+    puts url
+
+    begin
+      response = HTTParty.get(url)
+    rescue Exception => e
+      ae = Asari::SearchException.new("#{e.class}: #{e.message} (#{url})")
+      ae.set_backtrace e.backtrace
+      raise ae
+    end
+
+    unless response.response.code == "200"
+      raise Asari::SearchException.new("#{response.response.code}: #{response.response.msg} (#{url})")
+    end
+
+    Asari::Collection.new(response, size)
+  end
+  alias_method :search_with_latest_api, :search_with_2013_01_01_api
 
   # Public: Add an item to the index with the given ID.
   #
@@ -217,6 +264,55 @@ class Asari
 
   protected
 
+  def extract_pagination(options = {})
+    start = options[:start]
+    size  = options[:size]
+    page  = options[:page]
+    per   = options[:per]
+
+    case
+      when (start and size)
+        [start, size]
+      when (page and per)
+        [(page - 1) * per, per]
+      when (size or per)
+        [nil, (size || per)]
+      else
+        [nil, DEFAULT_SIZE]
+    end
+  end
+
+  def extract_sorting(options = {})
+    sort = options[:sort]
+
+    case sort
+      when Hash
+        "#{sort[:by] || '_score'} #{sort[:order] || 'desc'}"
+      when String
+        "#{sort} desc"
+      when Symbol
+        "#{sort} desc"
+      else
+        nil
+    end
+  end
+
+  def extract_returning(options = {})
+    returning = options[:return]
+
+    case returning
+      when Array
+        returning
+      when String
+        [returning]
+      when Symbol
+        [returning.to_s]
+      else
+        []
+    end
+  end
+
+
   # Private: Builds the query from a passed hash
   #
   #     terms - a hash of the search query. %w(and or not) are reserved hash keys
@@ -240,15 +336,152 @@ class Asari
     reduce.call(terms)
   end
 
+
+  # Private: Builds the query from a passed hash
+  #
+  #     terms - a hash of the search query. %w(and or not) are reserved hash keys
+  #             that build the logic of the query
+  def structured_query(expression, options = {})
+    case expression
+      when Hash
+        expression.reduce("") do |memo, (key, value)|
+          case key
+            when 'and'
+              memo + "(and #{structured_query(value, options.dup.merge(key: :and))})"
+            when 'or'
+              memo + "(or #{structured_query(value, options.dup.merge(key: :or))})"
+            when 'not'
+              memo + "(not #{structured_query(value, options.dup.merge(key: :not))})"
+            when 'range'
+              memo + structured_range(value, nil, options[:compound])
+            else
+              case value
+                when Hash
+                  if value.has_key?(:min) or value.has_key?(:max)
+                    memo + structured_range(value, key, options[:compound])
+                  else
+                    raise "Could not guess what to do for #{key}"
+                  end
+                when Array
+                  case options[:default_operator]
+                    when :and
+                      memo + "(and #{structured_query(value, options.dup.merge(key: :and))})"
+                    when :or
+                      memo + "(or #{structured_query(value, options.dup.merge(key: :or))})"
+                    else
+                      memo + "(or #{structured_query(value, options.dup.merge(key: :or))})"
+                  end
+                when Range
+                  memo + structured_range(value, key, options[:compound])
+                when String
+                  memo + "#{key}:#{convert_for_cloud_search value}"
+                when Symbol
+                  memo + "#{key}:#{convert_for_cloud_search value}"
+                when Numeric
+                  memo + "#{key}:#{convert_for_cloud_search value}"
+                when Date
+                  memo + "#{key}:#{convert_for_cloud_search value}"
+                else
+                  raise "Could not guess what to do for #{key}"
+              end
+          end
+        end
+      when Array
+        key = options.delete(:key)
+
+        if key
+          expression.map do |exp|
+            structured_query(exp, options)
+          end.join(' ')
+        else
+          return structured_query(expression.first, options) if expression.one?
+
+          case options[:default_operator]
+            when :and
+              "(and #{structured_query(expression, options.dup.merge(key: :and))})"
+            when :or
+              "(or #{structured_query(expression, options.dup.merge(key: :or))})"
+            else
+              "(or #{structured_query(expression, options.dup.merge(key: :or))})"
+          end
+        end
+      when String
+        "'#{expression}'"
+      when Symbol
+        "'#{expression}'"
+      when Numeric
+        "#{expression}"
+      else
+        raise "Unknown expression Type #{expression.class}"
+    end
+  end
+
+  def structured_range(expression, field = nil, compound = true)
+    case expression
+      when Array
+        field ||= expression.extract_options![:field]
+      when Hash
+        field ||= expression[:field]
+      else
+    end
+
+    raise 'No target field provided for range' unless field
+
+    if compound
+      " (range field:#{field} #{format_range(expression)})"
+    else
+      " #{field}:#{format_range(expression)}"
+    end
+  end
+
+  def format_range(expression)
+    case expression
+      when Hash
+        min = convert_for_range expression[:min]
+        max = convert_for_range expression[:max]
+
+        "#{min.present? ? "[#{min}" : '{' },#{max.present? ? "#{max}]" : '}'}"
+      when Array
+        min = convert_for_range expression.first
+        max = convert_for_range expression.last
+
+        "#{min.present? ? "[#{min}" : '{' },#{max.present? ? "#{max}]" : '}'}"
+      when Range
+        min = convert_for_range expression.first
+        max = convert_for_range expression.last
+
+        "#{min.present? ? "[#{min}" : '{' },#{max.present? ? "#{max}#{expression.exclude_end? ? '}' : ']' }" : '}'}"
+      else
+        raise "Unknown expression Type #{expression.class}"
+    end
+  end
+
+  def convert_for_cloud_search(value)
+    case value
+      when DateTime
+        value.utc.strftime('%Y-%m-%dT%H:%M:%SZ')
+      when Date
+        value.strftime('%Y-%m-%dT%H:%M:%SZ')
+      when Numeric
+        value.to_i
+      else
+        "'#{value.to_s}'"
+    end
+  end
+
+  def convert_for_range(value)
+    if value.class.in?([Date, DateTime, Fixnum, String])
+      convert_for_cloud_search(value)
+    else
+      raise "Unsupported range type #{value.class}"
+    end
+  end
+
   def normalize_rank(rank)
     rank = Array(rank)
     rank << :asc if rank.size < 2
-    
-    if api_version == '2013-01-01'
-      "#{rank[0]} #{rank[1]}"
-    else
-      rank[1] == :desc ? "-#{rank[0]}" : rank[0]
-    end
+
+    rank[1] == :desc ? "-#{rank[0]}" : rank[0]
   end
 
   def convert_date_or_time(obj)
