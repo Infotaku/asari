@@ -74,11 +74,10 @@ class Asari
     url = "http://search-#{search_domain}.#{aws_region}.cloudsearch.amazonaws.com/#{api_version}/search"
 
     if api_version == '2013-01-01'
+      url += "?q='#{CGI.escape(term.to_s)}'"
       if options[:filter]
-        url += "?q=#{CGI.escape(bq)}"
+        url += "&fq=#{CGI.escape(bq)}"
         url += "&q.parser=structured"
-      else
-        url += "?q=#{CGI.escape(term.to_s)}"
       end
     else
       url += "?q=#{CGI.escape(term.to_s)}"
@@ -99,6 +98,8 @@ class Asari
       rank_or_sort = api_version == '2013-01-01' ? 'sort' : 'rank'
       url << "&#{rank_or_sort}=#{CGI.escape(rank)}"
     end
+
+    puts url
 
     begin
       response = HTTParty.get(url)
