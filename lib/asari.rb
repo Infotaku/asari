@@ -145,8 +145,7 @@ class Asari
     params << "sort=#{CGI.escape(sort)}" if sort.present?
 
     url = [endpoint, params.join('&')].join('?')
-    puts 'NEW'
-    puts url
+
     begin
       response = HTTParty.get(url)
     rescue Exception => e
@@ -354,11 +353,15 @@ class Asari
               memo + "(not #{structured_query(value, options.dup.merge(key: :not))})"
             when 'range'
               memo + structured_range(value, nil, options[:compound])
+            when 'prefix'
+              memo + structured_prefix(value, nil, options[:compound])
             else
               case value
                 when Hash
                   if value.has_key?(:min) or value.has_key?(:max)
                     memo + structured_range(value, key, options[:compound])
+                  elsif value.has_key?(:prefix)
+                    memo + structured_prefix(value, key, options[:compound])
                   else
                     raise "Could not guess what to do for #{key}"
                   end
@@ -406,13 +409,45 @@ class Asari
           end
         end
       when String
-        "'#{expression}'"
+        if expression.last == '*'
+          structured_prefix(expression, nil, options[:compound])
+        else
+          "'#{expression}'"
+        end
       when Symbol
         "'#{expression}'"
       when Numeric
         "#{expression}"
       else
         raise "Unknown expression Type #{expression.class}"
+    end
+  end
+
+  def structured_prefix(expression, field = nil, compound = true)
+    case expression
+      when Array
+        field ||= expression.extract_options![:field]
+      when Hash
+        field ||= expression[:field]
+      else
+    end
+
+    if compound
+      " (prefix#{ "field:#{field}" if field} '#{format_prefix(expression)}')"
+    else
+      " #{format_prefix(expression)}*"
+    end
+  end
+
+  def format_prefix(expression)
+    case expression
+      when Hash
+        convert_for_prefix expression[:prefix]
+      when Array
+        convert_for_prefix expression.first
+      when String
+        convert_for_prefix expression
+      else
     end
   end
 
@@ -474,6 +509,15 @@ class Asari
       convert_for_cloud_search(value)
     else
       raise "Unsupported range type #{value.class}"
+    end
+  end
+
+  def convert_for_prefix(value)
+    case value
+      when String
+        value.gsub(/\*$/, '')
+      else
+       raise "Unsupported prefix type : #{value.class}"
     end
   end
 
