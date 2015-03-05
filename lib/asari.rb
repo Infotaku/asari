@@ -433,7 +433,7 @@ class Asari
     end
 
     if compound
-      " (prefix#{" field:#{field}" if field} '#{format_prefix(expression)}')"
+      " (prefix#{" field=#{field}" if field} '#{format_prefix(expression)}')"
     else
       " #{format_prefix(expression)}*"
     end
@@ -463,7 +463,7 @@ class Asari
     raise 'No target field provided for range' unless field
 
     if compound
-      " (range field:#{field} #{format_range(expression)})"
+      " (range field=#{field} #{format_range(expression)})"
     else
       " #{field}:#{format_range(expression)}"
     end
