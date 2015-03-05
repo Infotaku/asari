@@ -433,7 +433,7 @@ class Asari
     end
 
     if compound
-      " (prefix#{ "field:#{field}" if field} '#{format_prefix(expression)}')"
+      " (prefix#{" field:#{field}" if field} '#{format_prefix(expression)}')"
     else
       " #{format_prefix(expression)}*"
     end
