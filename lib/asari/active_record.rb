@@ -177,7 +177,7 @@ class Asari
       # Raises: an Asari::SearchException error if there are issues
       #   communicating with the CloudSearch server.
       def asari_find(term, options = {})
-        records = self.asari_instance.search(term, options)
+        records = self.asari_instance.search(term, options.merge(return: :_no_fields, return_fields: :_no_fields))
         ids = records.map { |id| id.to_i }
 
         records.replace(Array(self.where("id in (?)", ids)))
