@@ -239,7 +239,7 @@ class Asari
     end
 
     unless response.response.code == "200"
-      raise Asari::DocumentUpdateException.new("#{response.response.code}: #{response.response.msg}")
+      raise Asari::DocumentUpdateException.new("#{response.response.code}: #{response.response.msg} #{response.body}")
     end
 
     nil
@@ -344,7 +344,7 @@ class Asari
     case expression
       when Hash
         expression.reduce("") do |memo, (key, value)|
-          case key
+          case key.to_s
             when 'and'
               memo + "(and #{structured_query(value, options.dup.merge(key: :and))})"
             when 'or'
